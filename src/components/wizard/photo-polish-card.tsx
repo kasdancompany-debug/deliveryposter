@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +12,15 @@ import {
   loadImageForProcessing,
   type NormalizedRect,
 } from "@/lib/image-processing";
+import {
+  clampZoom,
+  screenToNormalized,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+  zoomTowardPoint,
+  type PanOffset,
+} from "@/lib/photo-editor-viewport";
 import { getEditedUrl, getOriginalUrl } from "@/lib/delivery-post/photo-urls";
 import { isPhotoPlateProtected } from "@/lib/plate-safety";
 import type { WizardPhoto } from "@/lib/delivery-post/types";
@@ -40,9 +49,26 @@ export function PhotoPolishCard({
   const [selection, setSelection] = useState<NormalizedRect | null>(null);
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
   const [imgLoadError, setImgLoadError] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<PanOffset>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panPointerStart, setPanPointerStart] = useState<{
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
+  const [altHeld, setAltHeld] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
 
   const displayUrl = getEditedUrl(photo);
   const protected_ = isPhotoPlateProtected(photo);
+  const isZoomed = zoom > 1.001;
+
+  const viewportTransform = {
+    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+    transformOrigin: "center center",
+  };
 
   useEffect(() => {
     setImgLoadError(false);
@@ -56,30 +82,108 @@ export function PhotoPolishCard({
       });
   }, [displayUrl]);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Alt") setAltHeld(true);
+      if (e.code === "Space") {
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === "Alt") setAltHeld(false);
+      if (e.code === "Space") setSpaceHeld(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || disabled) return;
+
+    function onWheel(e: WheelEvent) {
+      if (!e.altKey || !el) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      setZoom((oldZoom) => {
+        const next = clampZoom(oldZoom * (1 + delta));
+        setPan((p) =>
+          zoomTowardPoint(mx, my, rect.width, rect.height, p, oldZoom, next)
+        );
+        return next;
+      });
+    }
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [disabled]);
+
+  function resetViewport() {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }
+
   function pointerToNorm(clientX: number, clientY: number) {
     const el = containerRef.current;
     if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) / rect.width,
-      y: (clientY - rect.top) / rect.height,
-    };
+    return screenToNormalized(
+      clientX,
+      clientY,
+      el.getBoundingClientRect(),
+      pan,
+      zoom
+    );
   }
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!blurMode || disabled || processing) return;
+      if (disabled || processing) return;
+      const el = containerRef.current;
+      if (!el) return;
+
+      const panInsteadOfBlur = (!blurMode && isZoomed) || (blurMode && spaceHeld);
+
+      if (panInsteadOfBlur) {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        setIsPanning(true);
+        setPanPointerStart({
+          x: e.clientX,
+          y: e.clientY,
+          panX: pan.x,
+          panY: pan.y,
+        });
+        return;
+      }
+
+      if (!blurMode) return;
+
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       const p = pointerToNorm(e.clientX, e.clientY);
       if (!p) return;
       setDragStart(p);
       setSelection({ x: p.x, y: p.y, w: 0, h: 0 });
     },
-    [blurMode, disabled, processing]
+    [blurMode, disabled, processing, isZoomed, spaceHeld, pan.x, pan.y, zoom]
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      if (isPanning && panPointerStart) {
+        setPan({
+          x: panPointerStart.panX + (e.clientX - panPointerStart.x),
+          y: panPointerStart.panY + (e.clientY - panPointerStart.y),
+        });
+        return;
+      }
+
       if (!blurMode || !dragStart) return;
       const p = pointerToNorm(e.clientX, e.clientY);
       if (!p) return;
@@ -90,11 +194,13 @@ export function PhotoPolishCard({
         h: Math.abs(p.y - dragStart.y),
       });
     },
-    [blurMode, dragStart]
+    [blurMode, dragStart, isPanning, panPointerStart, pan, zoom]
   );
 
   const handlePointerUp = useCallback(() => {
     setDragStart(null);
+    setIsPanning(false);
+    setPanPointerStart(null);
   }, []);
 
   function exitBlurMode() {
@@ -186,7 +292,23 @@ export function PhotoPolishCard({
       plateProtected: false,
     });
     exitBlurMode();
+    resetViewport();
     toast.message(`Photo ${index + 1} reset to original`);
+  }
+
+  function adjustZoom(delta: number) {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const mx = rect.width / 2;
+    const my = rect.height / 2;
+    setZoom((oldZoom) => {
+      const next = clampZoom(oldZoom + delta);
+      setPan((p) =>
+        zoomTowardPoint(mx, my, rect.width, rect.height, p, oldZoom, next)
+      );
+      return next;
+    });
   }
 
   const selectionReady =
@@ -199,55 +321,62 @@ export function PhotoPolishCard({
         <div
           ref={containerRef}
           className={cn(
-            "relative aspect-[4/3] bg-black/40",
-            blurMode && "cursor-crosshair touch-none"
+            "relative aspect-[4/3] overflow-hidden bg-black/40",
+            blurMode && !spaceHeld && "cursor-crosshair touch-none",
+            blurMode && spaceHeld && "cursor-grab",
+            (!blurMode && isZoomed) && "cursor-grab",
+            isPanning && "cursor-grabbing"
           )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
+          onPointerCancel={handlePointerUp}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={displayUrl}
-            alt={`Photo ${index + 1}`}
-            className={cn(
-              "h-full w-full object-cover select-none",
-              blurMode && "pointer-events-none"
+          <div className="h-full w-full" style={viewportTransform}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={displayUrl}
+              alt={`Photo ${index + 1}`}
+              className={cn(
+                "h-full w-full object-cover select-none",
+                blurMode && "pointer-events-none"
+              )}
+              draggable={false}
+            />
+
+            {blurMode && !selectionReady && (
+              <div
+                className="pointer-events-none absolute inset-0 bg-black/45"
+                aria-hidden
+              />
             )}
-            draggable={false}
-          />
 
-          {blurMode && !selectionReady && (
-            <div
-              className="pointer-events-none absolute inset-0 bg-black/45"
-              aria-hidden
-            />
-          )}
-
-          {blurMode && selectionReady && (
-            <div
-              className="pointer-events-none absolute border-2 border-amber-400 bg-amber-400/10"
-              style={{
-                left: `${selection.x * 100}%`,
-                top: `${selection.y * 100}%`,
-                width: `${selection.w * 100}%`,
-                height: `${selection.h * 100}%`,
-                boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
-              }}
-            />
-          )}
+            {blurMode && selectionReady && selection && (
+              <div
+                className="pointer-events-none absolute border-2 border-amber-400 bg-amber-400/10"
+                style={{
+                  left: `${selection.x * 100}%`,
+                  top: `${selection.y * 100}%`,
+                  width: `${selection.w * 100}%`,
+                  height: `${selection.h * 100}%`,
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
+                }}
+              />
+            )}
+          </div>
 
           {blurMode && (
-            <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-3">
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3">
               <p className="rounded-lg bg-black/75 px-3 py-1.5 text-center text-xs font-medium text-amber-100">
                 Draw around the license plate
+                {isZoomed ? " · Alt + scroll to adjust zoom" : ""}
               </p>
             </div>
           )}
 
           {blurMode && selectionReady && (
-            <div className="pointer-events-auto absolute inset-x-0 bottom-3 z-10 flex justify-center gap-2 px-3">
+            <div className="pointer-events-auto absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2 px-3">
               <Button
                 type="button"
                 size="sm"
@@ -271,15 +400,28 @@ export function PhotoPolishCard({
           )}
 
           {protected_ && !blurMode && (
-            <span className="absolute right-2 top-2 rounded-md bg-emerald-600/95 px-2 py-1 text-[10px] font-semibold text-white shadow">
+            <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-md bg-emerald-600/95 px-2 py-1 text-[10px] font-semibold text-white shadow">
               🛡 Plate Protected
             </span>
           )}
 
+          <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-col gap-1">
+            {(isZoomed || altHeld) && (
+              <span className="rounded-md bg-black/75 px-2 py-1 text-[10px] font-medium text-amber-100">
+                {Math.round(zoom * 100)}%
+              </span>
+            )}
+            {altHeld && (
+              <span className="rounded-md bg-black/75 px-2 py-0.5 text-[10px] text-white/80">
+                Alt + scroll
+              </span>
+            )}
+          </div>
+
           {(processing || (blurMode && !selectionReady)) && (
             <div
               className={cn(
-                "absolute inset-0 flex items-center justify-center",
+                "pointer-events-none absolute inset-0 z-[5] flex items-center justify-center",
                 processing && "bg-black/40"
               )}
             >
@@ -291,7 +433,21 @@ export function PhotoPolishCard({
         </div>
 
         <CardContent className="space-y-3 py-3">
-          <span className="text-sm font-medium">Photo {index + 1}</span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium">Photo {index + 1}</span>
+            {isZoomed && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                disabled={busy}
+                onClick={resetViewport}
+              >
+                Reset zoom
+              </Button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -326,6 +482,28 @@ export function PhotoPolishCard({
               type="button"
               size="sm"
               variant="outline"
+              className="h-8 rounded-full px-2.5 text-xs"
+              disabled={busy || blurMode || zoom >= ZOOM_MAX}
+              title="Zoom in"
+              onClick={() => adjustZoom(ZOOM_STEP)}
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-full px-2.5 text-xs"
+              disabled={busy || blurMode || zoom <= ZOOM_MIN}
+              title="Zoom out"
+              onClick={() => adjustZoom(-ZOOM_STEP)}
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
               className="h-8 rounded-full px-3 text-xs"
               disabled={busy || blurMode}
               onClick={() => setCropOpen(true)}
@@ -343,10 +521,13 @@ export function PhotoPolishCard({
               ↺ Reset
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            <strong>Alt + scroll</strong> to zoom. When zoomed, drag to pan
+            {blurMode ? " (hold Space + drag while blurring)" : ""}.
+          </p>
           {blurMode && !selectionReady && (
             <p className="text-xs text-muted-foreground">
               Drag a box over the plate, then tap <strong>Apply Blur</strong>.
-              You can blur multiple regions one at a time.
             </p>
           )}
           {imgLoadError && (

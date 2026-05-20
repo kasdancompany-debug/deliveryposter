@@ -91,7 +91,8 @@ export function PhotoPolishStep({
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Photo polish</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Use the chips under each photo to enhance, blur plates, or crop. Draw
+          Use the chips under each photo to enhance, blur plates, or crop.{" "}
+          <strong>Alt + scroll</strong> to zoom; drag to pan when zoomed. Draw
           around each plate — you can protect multiple regions per image.
         </p>
       </div>

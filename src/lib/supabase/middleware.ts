@@ -5,6 +5,17 @@ export function isDemoMode() {
   return process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 }
 
+/** True when Supabase is not configured (safe fallback for first deploy). */
+export function isSupabaseConfigured() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  return (
+    Boolean(url && key) &&
+    !url.includes("placeholder") &&
+    !key.includes("placeholder")
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   if (isDemoMode()) {
     if (request.nextUrl.pathname === "/") {
@@ -15,11 +26,17 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) {
+  if (!isSupabaseConfigured()) {
+    if (request.nextUrl.pathname === "/") {
+      const dest = request.nextUrl.clone();
+      dest.pathname = "/login";
+      return NextResponse.redirect(dest);
+    }
     return NextResponse.next({ request });
   }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   let supabaseResponse = NextResponse.next({ request });
 

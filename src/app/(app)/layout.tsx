@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
-import { isDemoMode } from "@/lib/supabase/middleware";
+import { isDemoMode, isSupabaseConfigured } from "@/lib/supabase/middleware";
 
 export default async function AppLayout({
   children,
@@ -20,6 +20,10 @@ export default async function AppLayout({
         {children}
       </AppShell>
     );
+  }
+
+  if (!isSupabaseConfigured()) {
+    redirect("/login");
   }
 
   const supabase = await createClient();

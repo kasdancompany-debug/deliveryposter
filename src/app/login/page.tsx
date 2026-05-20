@@ -73,7 +73,19 @@ export default function LoginPage() {
             Use your dealership staff credentials
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+            <Button
+              type="button"
+              className="w-full bg-amber-500 text-black hover:bg-amber-400"
+              onClick={() => {
+                router.push("/dashboard");
+                router.refresh();
+              }}
+            >
+              Continue in demo mode
+            </Button>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -110,6 +122,13 @@ export default function LoginPage() {
               Sign in
             </Button>
           </form>
+          {process.env.NEXT_PUBLIC_DEMO_MODE !== "true" && (
+            <p className="text-center text-xs text-muted-foreground">
+              For the full wizard without login, set{" "}
+              <code className="text-amber-300">NEXT_PUBLIC_DEMO_MODE=true</code>{" "}
+              in Vercel environment variables and redeploy.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

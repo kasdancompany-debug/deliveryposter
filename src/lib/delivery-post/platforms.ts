@@ -1,0 +1,1 @@
+export { platformsLabelFromChoice } from "./types";

@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { isDemoMode } from "@/lib/supabase/middleware";
+import { upsertSupabaseMetaAccount } from "@/lib/social/meta-account-service";
 import {
-  getDemoCookieSetOptions,
-  saveDemoMetaConnection,
-  upsertSupabaseMetaAccount,
-} from "@/lib/social/meta-account-service";
-import { encryptAccessToken, exchangeCodeForToken, fetchMetaPages } from "@/lib/social/meta-oauth";
+  encryptAccessToken,
+  exchangeCodeForToken,
+  fetchMetaPages,
+} from "@/lib/social/meta-oauth";
 
 const STATE_COOKIE = "meta_oauth_state";
 const SETTINGS_PATH = "/settings/social";
@@ -46,7 +45,6 @@ export async function GET(request: Request) {
   const state = searchParams.get("state");
   const error = searchParams.get("error");
   const code = searchParams.get("code");
-  const isDemo = searchParams.get("demo") === "1" || isDemoMode();
 
   const clearState = {
     name: STATE_COOKIE,
@@ -55,41 +53,17 @@ export async function GET(request: Request) {
   };
 
   if (error) {
-    return settingsRedirect(
-      { meta_error: error },
-      [clearState]
-    );
+    return settingsRedirect({ meta_error: error }, [clearState]);
   }
 
   if (state && savedState && state !== savedState) {
-    return settingsRedirect(
-      { meta_error: "invalid_state" },
-      [clearState]
-    );
-  }
-
-  if (isDemo) {
-    const payload = await saveDemoMetaConnection();
-    const opts = getDemoCookieSetOptions(payload);
-    const response = settingsRedirect({ meta_connected: "1" }, [clearState]);
-    response.cookies.set(opts.name, opts.value, {
-      httpOnly: opts.httpOnly,
-      secure: opts.secure,
-      sameSite: opts.sameSite,
-      path: opts.path,
-      maxAge: opts.maxAge,
-    });
-    return response;
+    return settingsRedirect({ meta_error: "invalid_state" }, [clearState]);
   }
 
   if (!code) {
-    return settingsRedirect(
-      { meta_error: "missing_code" },
-      [clearState]
-    );
+    return settingsRedirect({ meta_error: "missing_code" }, [clearState]);
   }
 
-  // TODO: Exchange code → user access token
   const tokenResult = await exchangeCodeForToken(code);
   if (!tokenResult) {
     return settingsRedirect(
@@ -98,21 +72,16 @@ export async function GET(request: Request) {
     );
   }
 
-  // TODO: Fetch pages; for MVP auto-select first page with IG business account
   const pages = await fetchMetaPages(tokenResult.accessToken);
   const page = pages[0];
   if (!page) {
-    return settingsRedirect(
-      { meta_error: "no_pages" },
-      [clearState]
-    );
+    return settingsRedirect({ meta_error: "no_pages" }, [clearState]);
   }
 
   const expiresAt = new Date(
     Date.now() + tokenResult.expiresIn * 1000
   ).toISOString();
 
-  // TODO: Store page access_token (long-lived), not only user token
   await upsertSupabaseMetaAccount({
     page_id: page.id,
     page_name: page.name,

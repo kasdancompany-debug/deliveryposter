@@ -11,7 +11,7 @@ import {
   deliveryDetailsSchema,
   type DeliveryDetailsInput,
 } from "@/lib/validators/delivery-wizard";
-import type { DeliveryDetailsValues } from "@/lib/demo/types";
+import type { DeliveryDetailsValues } from "@/lib/delivery-post/types";
 
 interface DeliveryDetailsStepProps {
   defaultValues: DeliveryDetailsValues;

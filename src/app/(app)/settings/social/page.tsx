@@ -4,10 +4,8 @@ import { ArrowLeft, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SocialConnectionCard } from "@/components/settings/social-connection-card";
 import { isMetaOAuthConfigured } from "@/lib/social/meta-env";
-import { isDemoMode } from "@/lib/supabase/middleware";
 
 export default function SocialSettingsPage() {
-  const demo = isDemoMode();
   const metaConfigured = isMetaOAuthConfigured();
 
   return (
@@ -35,7 +33,7 @@ export default function SocialSettingsPage() {
         </div>
       </div>
 
-      {!demo && !metaConfigured && (
+      {!metaConfigured && (
         <p className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
           Add{" "}
           <code className="text-orange-200">META_APP_ID</code>,{" "}
@@ -43,7 +41,7 @@ export default function SocialSettingsPage() {
           <code className="text-orange-200">META_REDIRECT_URI</code> to enable
           live OAuth (e.g.{" "}
           <code className="text-orange-200">
-            https://your-domain.com/api/meta/callback
+            https://deliveryposter.vercel.app/api/meta/callback
           </code>
           ).
         </p>

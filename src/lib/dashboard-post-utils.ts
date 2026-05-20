@@ -1,39 +1,103 @@
-import type { DemoDeliveryPost } from "@/lib/demo/types";
-import type { PostStatus } from "@/types/database";
+import type { PlatformChoice, PostStatus } from "@/types/database";
 
 export type StatusFilter = "all" | PostStatus;
-export type SortOption = "newest" | "oldest" | "status";
+export type SortOption = "newest" | "oldest" | "customer" | "vehicle" | "status";
 
-const STATUS_ORDER: Record<PostStatus, number> = { draft: 0, ready: 1, posted: 2, failed: 3 };
+export interface DashboardPostRow {
+  id: string;
+  customerName: string;
+  vehicleYear: number;
+  vehicleMake: string;
+  vehicleModel: string;
+  status: PostStatus;
+  createdAt: string;
+  thumbnailUrl: string | null;
+  platforms: PlatformChoice;
+}
 
-export function matchesStatusFilter(post: DemoDeliveryPost, filter: StatusFilter): boolean {
+export const FILTER_EMPTY_STATES: Record<
+  Exclude<StatusFilter, "all">,
+  { title: string; description: string }
+> = {
+  draft: {
+    title: "No drafts",
+    description: "Start a new delivery to create a draft.",
+  },
+  ready: {
+    title: "Nothing ready to publish",
+    description: "Mark a draft as ready when captions and photos are set.",
+  },
+  posted: {
+    title: "No published posts yet",
+    description: "Published deliveries will appear here.",
+  },
+  failed: {
+    title: "No failed publishes",
+    description: "Failed publish attempts will show here.",
+  },
+};
+
+export const SEARCH_EMPTY = {
+  title: "No matches",
+  description: "Try a different search term or clear filters.",
+};
+
+export function matchesStatusFilter(
+  post: DashboardPostRow,
+  filter: StatusFilter
+): boolean {
   return filter === "all" || post.status === filter;
 }
 
-export function matchesSearch(post: DemoDeliveryPost, query: string): boolean {
+export function matchesSearch(post: DashboardPostRow, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const haystack = [post.customerName, post.salespersonName, post.vehicleMake, post.vehicleModel, String(post.vehicleYear), post.trim, post.stockNumber].join(" ").toLowerCase();
-  return haystack.includes(q);
+  const vehicle = `${post.vehicleYear} ${post.vehicleMake} ${post.vehicleModel}`.toLowerCase();
+  return (
+    post.customerName.toLowerCase().includes(q) ||
+    vehicle.includes(q) ||
+    post.id.toLowerCase().includes(q)
+  );
 }
 
-export function sortDemoPosts(posts: DemoDeliveryPost[], sort: SortOption): DemoDeliveryPost[] {
+export function sortPosts(
+  posts: DashboardPostRow[],
+  sort: SortOption
+): DashboardPostRow[] {
   const copy = [...posts];
-  if (sort === "oldest") return copy.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  if (sort === "status") return copy.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  return copy.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  if (sort === "newest")
+    return copy.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  if (sort === "oldest")
+    return copy.sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  if (sort === "customer")
+    return copy.sort((a, b) =>
+      a.customerName.localeCompare(b.customerName)
+    );
+  if (sort === "status")
+    return copy.sort((a, b) => a.status.localeCompare(b.status));
+  return copy.sort((a, b) => {
+    const va = `${a.vehicleYear} ${a.vehicleMake} ${a.vehicleModel}`;
+    const vb = `${b.vehicleYear} ${b.vehicleMake} ${b.vehicleModel}`;
+    return va.localeCompare(vb);
+  });
 }
 
-export function filterAndSortPosts(posts: DemoDeliveryPost[], opts: { statusFilter: StatusFilter; search: string; sort: SortOption }): DemoDeliveryPost[] {
-  return sortDemoPosts(posts.filter((p) => matchesStatusFilter(p, opts.statusFilter) && matchesSearch(p, opts.search)), opts.sort);
+export function filterAndSortPosts(
+  posts: DashboardPostRow[],
+  opts: { statusFilter: StatusFilter; search: string; sort: SortOption }
+): DashboardPostRow[] {
+  return sortPosts(
+    posts.filter(
+      (p) =>
+        matchesStatusFilter(p, opts.statusFilter) &&
+        matchesSearch(p, opts.search)
+    ),
+    opts.sort
+  );
 }
-
-export const FILTER_EMPTY_STATES: Record<StatusFilter, { title: string; description: string }> = {
-  all: { title: "No delivery posts yet", description: "Create your first post to celebrate a customer handover." },
-  draft: { title: "No draft posts", description: "Drafts appear here while you are building a delivery post." },
-  ready: { title: "No posts ready for approval", description: "Mark a post ready from the review page when it is complete." },
-  posted: { title: "No published posts", description: "Posts move here after a successful mock or live publish." },
-  failed: { title: "No failed publishes", description: "Failed publish attempts will show up in this filter." },
-};
-
-export const SEARCH_EMPTY = { title: "No matching posts", description: "Try a different customer name, salesperson, or vehicle." };

@@ -159,11 +159,7 @@ export function PreviewApprovalStep({
             ) : (
               <Rocket className="h-5 w-5" />
             )}
-            <span>
-              {process.env.NEXT_PUBLIC_DEMO_MODE === "true"
-                ? "Approve & mock publish"
-                : "Approve & publish"}
-            </span>
+            <span>Approve & publish</span>
           </Button>
         </div>
       )}
@@ -171,21 +167,19 @@ export function PreviewApprovalStep({
       {status !== "ready" && !locked && (
         <p className="text-center text-xs text-muted-foreground">
           Mark the post <strong className="text-emerald-300">Ready</strong> before
-          {process.env.NEXT_PUBLIC_DEMO_MODE === "true"
-            ? " mock publishing."
-            : " publishing."}
+          {" publishing."}
         </p>
       )}
 
       {status === "posted" && (
         <p className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-center text-sm text-sky-200">
-          This post was published (demo mock).
+          This post was published.
         </p>
       )}
 
       {status === "failed" && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
-          Last publish attempt failed. Edit and try mock publish again.
+          Last publish attempt failed. Edit the post and try publishing again.
         </p>
       )}
     </div>

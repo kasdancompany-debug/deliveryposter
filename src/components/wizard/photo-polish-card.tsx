@@ -12,9 +12,9 @@ import {
   loadImage,
   type NormalizedRect,
 } from "@/lib/image-processing";
-import { getEditedUrl, getOriginalUrl } from "@/lib/demo/photo-urls";
+import { getEditedUrl, getOriginalUrl } from "@/lib/delivery-post/photo-urls";
 import { isPhotoPlateProtected } from "@/lib/plate-safety";
-import type { WizardPhoto } from "@/lib/demo/types";
+import type { WizardPhoto } from "@/lib/delivery-post/types";
 import { PhotoCropDialog } from "./photo-crop-dialog";
 
 interface PhotoPolishCardProps {

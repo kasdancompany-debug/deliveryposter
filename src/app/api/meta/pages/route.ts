@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import { isDemoMode } from "@/lib/supabase/middleware";
-import {
-  getMetaPages,
-  getMockPageCatalog,
-} from "@/lib/social/meta-account-service";
+import { getMetaPages } from "@/lib/social/meta-account-service";
 
 /**
  * GET /api/meta/pages
@@ -12,17 +8,6 @@ import {
 export async function GET() {
   try {
     const { connection, pages } = await getMetaPages();
-
-    // TODO: When OAuth completes but page not yet selected, return fetchMetaPages()
-    // using stored user token and let client POST selected page_id.
-
-    if (isDemoMode() && !connection.connected) {
-      return NextResponse.json({
-        connection,
-        pages: [],
-        availablePages: getMockPageCatalog(),
-      });
-    }
 
     return NextResponse.json({
       connection,

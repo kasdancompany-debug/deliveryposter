@@ -14,8 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MAX_PHOTOS, MIN_PHOTOS } from "@/lib/validators/delivery-wizard";
-import type { WizardPhoto } from "@/lib/demo/types";
-import { fileToStoredDataUrl } from "@/lib/demo/image-utils";
+import type { WizardPhoto } from "@/lib/delivery-post/types";
+import { fileToStoredDataUrl } from "@/lib/delivery-post/image-utils";
 
 interface PhotoUploadStepProps {
   photos: WizardPhoto[];

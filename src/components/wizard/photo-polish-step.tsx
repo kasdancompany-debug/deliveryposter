@@ -14,8 +14,8 @@ import {
   FILTER_PRESETS,
   type FilterPresetId,
 } from "@/lib/image-processing";
-import { getEditedUrl, getOriginalUrl } from "@/lib/demo/photo-urls";
-import type { WizardPhoto } from "@/lib/demo/types";
+import { getEditedUrl, getOriginalUrl } from "@/lib/delivery-post/photo-urls";
+import type { WizardPhoto } from "@/lib/delivery-post/types";
 
 interface PhotoPolishStepProps {
   photos: WizardPhoto[];

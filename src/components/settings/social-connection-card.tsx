@@ -71,7 +71,6 @@ export function SocialConnectionCard() {
     useState<MetaConnectionView>(EMPTY_CONNECTION);
   const [loading, setLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
   const loadConnection = useCallback(async () => {
     setLoading(true);
@@ -146,13 +145,6 @@ export function SocialConnectionCard() {
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {isDemo && (
-          <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
-            <strong>Demo mode</strong> — Connect simulates OAuth and stores a
-            mock Sault Nissan page + Instagram account in a demo cookie.
-          </p>
-        )}
-
         {loading ? (
           <div className="flex items-center justify-center py-10">
             <Loader2 className="h-8 w-8 animate-spin text-amber-400" />

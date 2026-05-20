@@ -21,8 +21,8 @@ import {
   type DeliveryScoreResult,
   type PlateSafetyStatus,
 } from "@/lib/delivery-score";
-import type { WizardPhoto } from "@/lib/demo/types";
-import { getEditedUrl, getOriginalUrl } from "@/lib/demo/photo-urls";
+import type { WizardPhoto } from "@/lib/delivery-post/types";
+import { getEditedUrl, getOriginalUrl } from "@/lib/delivery-post/photo-urls";
 import { ScoreRing } from "./score-ring";
 
 interface DeliveryScorePanelProps {

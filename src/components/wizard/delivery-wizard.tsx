@@ -14,11 +14,11 @@ import { DeliveryDetailsStep } from "./delivery-details-step";
 import { CaptionStudioStep } from "./caption-studio-step";
 import { PreviewApprovalStep } from "./preview-approval-step";
 import {
-  createEmptyDemoPost,
-  getDemoPost,
-  getOrderedPhotoUrls,
-  saveDemoPost,
-} from "@/lib/demo/posts-store";
+  createWizardPost,
+  getWizardPost,
+  saveWizardPhotos,
+  saveWizardPost,
+} from "@/app/actions/wizard";
 import {
   fetchAllCaptions,
   fetchRegeneratedCaption,
@@ -31,11 +31,11 @@ import type { GeneratedCaption } from "@/lib/captions";
 import { publishDeliveryPost } from "@/lib/publish-delivery-post";
 import type {
   DeliveryDetailsValues,
-  DemoDeliveryPost,
+  DeliveryPostWizardState,
   WizardPhoto,
-} from "@/lib/demo/types";
-import { resolvePlatforms } from "@/lib/demo/types";
-import { demoPhotoToWizard, wizardPhotoToDemo } from "@/lib/demo/photo-urls";
+} from "@/lib/delivery-post/types";
+import { platformsToFlags } from "@/lib/delivery-post/types";
+import { getOrderedPhotoUrls } from "@/lib/delivery-post/photo-urls";
 import { computePlateSafetyFromPhotos } from "@/lib/plate-safety";
 import { MIN_PHOTOS } from "@/lib/validators/delivery-wizard";
 import type { PostStatus } from "@/types/database";
@@ -46,60 +46,21 @@ function captionTextsFromGenerated(captions: GeneratedCaption[]): string[] {
   return captions.map((c) => c.text);
 }
 
-function demoToWizardPhotos(post: DemoDeliveryPost): {
-  photos: WizardPhoto[];
-  coverPhotoId: string;
-} {
+function postToDetails(post: DeliveryPostWizardState): DeliveryDetailsValues {
   return {
-    photos: post.photos.map((p) => demoPhotoToWizard(p)),
-    coverPhotoId: post.coverPhotoId,
-  };
-}
-
-function buildDemoPost(
-  existing: DemoDeliveryPost,
-  photos: WizardPhoto[],
-  coverPhotoId: string,
-  details: DeliveryDetailsValues,
-  captionOptions: string[],
-  selectedCaptionIndex: number | null,
-  finalCaption: string,
-  status: PostStatus
-): DemoDeliveryPost {
-  return {
-    ...existing,
-    customerName: details.customerName,
-    salespersonName: details.salespersonName,
-    vehicleYear: details.vehicleYear,
-    vehicleMake: details.vehicleMake,
-    vehicleModel: details.vehicleModel,
-    trim: details.trim,
-    colour: details.colour,
-    stockNumber: details.stockNumber,
-    vinLast6: details.vinLast6,
-    story: details.story,
-    customerConsentConfirmed: details.customerConsentConfirmed,
-    publishInstagram: details.publishInstagram,
-    publishFacebook: details.publishFacebook,
-    platforms: resolvePlatforms(
-      details.publishInstagram,
-      details.publishFacebook
-    ),
-    photos: photos.map((p, i) => wizardPhotoToDemo(p, i)),
-    coverPhotoId,
-    captionOptions,
-    selectedCaptionIndex,
-    finalCaption,
-    status,
-    captionGeneratedAt:
-      captionOptions.length > 0
-        ? existing.captionGeneratedAt ?? new Date().toISOString()
-        : existing.captionGeneratedAt,
-    markedReadyAt:
-      status === "ready"
-        ? existing.markedReadyAt ?? new Date().toISOString()
-        : existing.markedReadyAt,
-    updatedAt: new Date().toISOString(),
+    customerName: post.customerName,
+    salespersonName: post.salespersonName,
+    vehicleYear: post.vehicleYear,
+    vehicleMake: post.vehicleMake,
+    vehicleModel: post.vehicleModel,
+    trim: post.trim,
+    colour: post.colour,
+    stockNumber: post.stockNumber,
+    vinLast6: post.vinLast6,
+    story: post.story,
+    customerConsentConfirmed: post.customerConsentConfirmed,
+    publishInstagram: post.publishInstagram,
+    publishFacebook: post.publishFacebook,
   };
 }
 
@@ -110,7 +71,7 @@ interface DeliveryWizardProps {
 export function DeliveryWizard({ postId }: DeliveryWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [post, setPost] = useState<DemoDeliveryPost | null>(null);
+  const [post, setPost] = useState<DeliveryPostWizardState | null>(null);
   const [photos, setPhotos] = useState<WizardPhoto[]>([]);
   const [coverPhotoId, setCoverPhotoId] = useState("");
   const [details, setDetails] = useState<DeliveryDetailsValues | null>(null);
@@ -124,50 +85,38 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (postId) {
-      const existing = getDemoPost(postId);
-      if (!existing) {
-        toast.error("Post not found");
-        router.push("/dashboard");
-        return;
-      }
-      setPost(existing);
-      const { photos: p, coverPhotoId: c } = demoToWizardPhotos(existing);
-      setPhotos(p);
-      setCoverPhotoId(c);
-      setDetails({
-        customerName: existing.customerName,
-        salespersonName: existing.salespersonName,
-        vehicleYear: existing.vehicleYear,
-        vehicleMake: existing.vehicleMake,
-        vehicleModel: existing.vehicleModel,
-        trim: existing.trim,
-        colour: existing.colour,
-        stockNumber: existing.stockNumber,
-        vinLast6: existing.vinLast6,
-        story: existing.story,
-        customerConsentConfirmed: existing.customerConsentConfirmed,
-        publishInstagram: existing.publishInstagram,
-        publishFacebook: existing.publishFacebook,
-      });
-      if (existing.captionOptions.length > 0) {
-        setGeneratedCaptions(
-          existing.captionOptions.map((text, i) => {
-            const style = CAPTION_STYLES[i] ?? "warm";
-            return {
-              style,
-              label: CAPTION_STYLE_LABELS[style],
-              text,
-            };
-          })
+    async function load() {
+      if (postId) {
+        const existing = await getWizardPost(postId);
+        if ("error" in existing) {
+          toast.error(existing.error);
+          router.push("/dashboard");
+          return;
+        }
+        setPost(existing);
+        setPhotos(existing.photos);
+        setCoverPhotoId(
+          existing.coverPhotoId || (existing.photos[0]?.id ?? "")
         );
+        setDetails(postToDetails(existing));
+        if (existing.captionOptions.length > 0) {
+          setGeneratedCaptions(
+            existing.captionOptions.map((text, i) => {
+              const style = CAPTION_STYLES[i] ?? "warm";
+              return {
+                style,
+                label: CAPTION_STYLE_LABELS[style],
+                text,
+              };
+            })
+          );
+        }
+        setSelectedIndex(existing.selectedCaptionIndex);
+        setFinalCaption(existing.finalCaption);
       }
-      setSelectedIndex(existing.selectedCaptionIndex);
-      setFinalCaption(existing.finalCaption);
-    } else {
-      setPost(createEmptyDemoPost());
+      setLoaded(true);
     }
-    setLoaded(true);
+    load();
   }, [postId, router]);
 
   const handlePhotosChange = useCallback(
@@ -178,46 +127,42 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
     []
   );
 
-  const persist = useCallback(
-    (status: PostStatus, redirect?: "dashboard" | "detail") => {
-      if (!post || !details) return null;
+  async function persist(
+    status: PostStatus,
+    redirect?: "dashboard" | "detail"
+  ): Promise<DeliveryPostWizardState | null> {
+    if (!post || !details) return null;
 
-      const updated = buildDemoPost(
-        post,
-        photos,
-        coverPhotoId,
-        details,
-        captionTextsFromGenerated(generatedCaptions),
-        selectedIndex,
-        finalCaption,
-        status
-      );
-
-      const saved = saveDemoPost(updated);
-      setPost(saved);
-
-      if (redirect === "dashboard") {
-        router.push("/dashboard");
-        router.refresh();
-      } else if (redirect === "detail") {
-        router.push(`/posts/${saved.id}`);
-        router.refresh();
-      }
-
-      return saved;
-    },
-    [
-      post,
+    setSaving(true);
+    const texts = captionTextsFromGenerated(generatedCaptions);
+    const result = await saveWizardPost(post.id, {
       details,
       photos,
-      coverPhotoId,
-      generatedCaptions,
-      selectedIndex,
+      coverPhotoId: coverPhotoId || photos[0]?.id || "",
+      captionOptions: texts,
+      selectedCaptionIndex: selectedIndex,
       finalCaption,
-      postId,
-      router,
-    ]
-  );
+      status,
+    });
+    setSaving(false);
+
+    if ("error" in result) {
+      toast.error(result.error);
+      return null;
+    }
+
+    setPost(result);
+    setPhotos(result.photos);
+    setCoverPhotoId(result.coverPhotoId);
+
+    if (redirect === "dashboard") {
+      window.location.href = "/dashboard";
+    } else if (redirect === "detail") {
+      window.location.href = `/posts/${result.id}`;
+    }
+
+    return result;
+  }
 
   function validateStep1(): boolean {
     if (photos.length < MIN_PHOTOS) {
@@ -230,28 +175,53 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
     return true;
   }
 
-  function savePhotosProgress() {
-    if (!post) return;
-    const partial: DemoDeliveryPost = {
-      ...post,
-      photos: photos.map((p, i) => wizardPhotoToDemo(p, i)),
-      coverPhotoId: coverPhotoId || photos[0]?.id || "",
-    };
-    const saved = saveDemoPost(partial);
+  async function savePhotosProgress() {
+    setSaving(true);
+    let id = post?.id;
+
+    if (!id) {
+      const created = await createWizardPost();
+      if ("error" in created) {
+        toast.error(created.error);
+        setSaving(false);
+        return;
+      }
+      id = created.id;
+      const loaded = await getWizardPost(id);
+      if ("error" in loaded) {
+        toast.error(loaded.error);
+        setSaving(false);
+        return;
+      }
+      setPost(loaded);
+    }
+
+    const saved = await saveWizardPhotos(
+      id!,
+      photos,
+      coverPhotoId || photos[0]?.id || ""
+    );
+    setSaving(false);
+
+    if ("error" in saved) {
+      toast.error(saved.error);
+      return;
+    }
+
     setPost(saved);
-    if (!postId) router.replace(`/posts/${saved.id}`);
+    setPhotos(saved.photos);
+    setCoverPhotoId(saved.coverPhotoId);
+    if (!postId) router.replace(`/posts/${saved.id}/edit`);
   }
 
   function goNext() {
     if (step === 1) {
       if (!validateStep1()) return;
-      savePhotosProgress();
-      setStep(2);
+      void savePhotosProgress().then(() => setStep(2));
       return;
     }
     if (step === 2) {
-      savePhotosProgress();
-      setStep(3);
+      void savePhotosProgress().then(() => setStep(3));
       return;
     }
     if (step === 3) {
@@ -295,21 +265,16 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
       setGeneratedCaptions(generated);
       const texts = captionTextsFromGenerated(generated);
       if (post) {
-        const saved = saveDemoPost({
-          ...buildDemoPost(
-            post,
-            photos,
-            coverPhotoId,
-            details,
-            texts,
-            selectedIndex,
-            finalCaption,
-            post.status
-          ),
+        const result = await saveWizardPost(post.id, {
+          details,
+          photos,
+          coverPhotoId,
           captionOptions: texts,
-          captionGeneratedAt: new Date().toISOString(),
+          selectedCaptionIndex: selectedIndex,
+          finalCaption,
+          status: post.status,
         });
-        setPost(saved);
+        if (!("error" in result)) setPost(result);
       }
       toast.success("4 caption options ready");
     } catch (err) {
@@ -322,15 +287,13 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
   }
 
   async function handleSaveDraft() {
-    if (!details) return;
-    setSaving(true);
-    persist("draft", postId ? "detail" : "dashboard");
-    toast.success("Saved as draft");
-    setSaving(false);
+    if (!details || !post) return;
+    const saved = await persist("draft", postId ? "detail" : "dashboard");
+    if (saved) toast.success("Saved as draft");
   }
 
   async function handleMarkReady() {
-    if (!details) return;
+    if (!details || !post) return;
     if (!finalCaption.trim()) {
       toast.error("Caption is required");
       setStep(4);
@@ -341,10 +304,8 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
       setStep(3);
       return;
     }
-    setSaving(true);
-    persist("ready", postId ? "detail" : "dashboard");
-    toast.success("Marked ready for publishing");
-    setSaving(false);
+    const saved = await persist("ready", postId ? "detail" : "dashboard");
+    if (saved) toast.success("Marked ready for publishing");
   }
 
   async function handleRegenerateCaption(index: number) {
@@ -368,58 +329,53 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
     setGeneratedCaptions((prev) => {
       const next = [...prev];
       next[index] = refreshed;
-      if (post && details) {
-        const texts = captionTextsFromGenerated(next);
-        saveDemoPost({
-          ...buildDemoPost(
-            post,
-            photos,
-            coverPhotoId,
-            details,
-            texts,
-            selectedIndex,
-            selectedIndex === index ? refreshed.text : finalCaption,
-            post.status
-          ),
-          captionOptions: texts,
-        });
-      }
       return next;
     });
+    if (post) {
+      const texts = captionTextsFromGenerated(
+        generatedCaptions.map((c, i) => (i === index ? refreshed : c))
+      );
+      await saveWizardPost(post.id, {
+        details,
+        photos,
+        coverPhotoId,
+        captionOptions: texts,
+        selectedCaptionIndex: selectedIndex,
+        finalCaption:
+          selectedIndex === index ? refreshed.text : finalCaption,
+        status: post.status,
+      });
+    }
   }
 
   async function handleApprovePublish() {
     if (!post || !details) return;
     setSaving(true);
-    const ready = buildDemoPost(
-      post,
+    const ready = await saveWizardPost(post.id, {
+      details,
       photos,
       coverPhotoId,
-      details,
-      captionTextsFromGenerated(generatedCaptions),
-      selectedIndex,
+      captionOptions: captionTextsFromGenerated(generatedCaptions),
+      selectedCaptionIndex: selectedIndex,
       finalCaption,
-      "ready"
-    );
-    saveDemoPost(ready);
-
-    const result = await publishDeliveryPost(ready);
-    const final = saveDemoPost({
-      ...ready,
-      status: result.status,
-      publishedAt: result.publishedAt,
+      status: "ready",
     });
-    setPost(final);
 
+    if ("error" in ready) {
+      toast.error(ready.error);
+      setSaving(false);
+      return;
+    }
+
+    const result = await publishDeliveryPost(ready.id);
     if (result.status === "posted") toast.success(result.message);
     else toast.error(result.message);
 
     setSaving(false);
-    router.push("/dashboard");
-    router.refresh();
+    window.location.href = "/dashboard";
   }
 
-  if (!loaded || !post) {
+  if (!loaded) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-amber-400" />
@@ -427,37 +383,33 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
     );
   }
 
+  if (!post && postId) {
+    return (
+      <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+        Post not found.
+      </div>
+    );
+  }
+
   const detailsDefaults: DeliveryDetailsValues = details ?? {
-    customerName: post.customerName,
-    salespersonName: post.salespersonName,
-    vehicleYear: post.vehicleYear,
-    vehicleMake: post.vehicleMake,
-    vehicleModel: post.vehicleModel,
-    trim: post.trim,
-    colour: post.colour,
-    stockNumber: post.stockNumber,
-    vinLast6: post.vinLast6,
-    story: post.story,
-    customerConsentConfirmed: post.customerConsentConfirmed,
-    publishInstagram: post.publishInstagram,
-    publishFacebook: post.publishFacebook,
+    customerName: post?.customerName ?? "",
+    salespersonName: post?.salespersonName ?? "",
+    vehicleYear: post?.vehicleYear ?? new Date().getFullYear(),
+    vehicleMake: post?.vehicleMake ?? "",
+    vehicleModel: post?.vehicleModel ?? "",
+    trim: post?.trim ?? "",
+    colour: post?.colour ?? "",
+    stockNumber: post?.stockNumber ?? "",
+    vinLast6: post?.vinLast6 ?? "",
+    story: post?.story ?? "",
+    customerConsentConfirmed: post?.customerConsentConfirmed ?? false,
+    publishInstagram: post?.publishInstagram ?? true,
+    publishFacebook: post?.publishFacebook ?? true,
   };
 
-  const previewPost = details
-    ? buildDemoPost(
-        post,
-        photos,
-        coverPhotoId,
-        details,
-        captionTextsFromGenerated(generatedCaptions),
-        selectedIndex,
-        finalCaption,
-        post.status
-      )
-    : post;
-
-  const imageUrls = getOrderedPhotoUrls(previewPost);
-  const readOnly = post.status === "posted";
+  const imageUrls = getOrderedPhotoUrls(photos, coverPhotoId);
+  const readOnly = post?.status === "posted";
+  const platforms = post?.platforms ?? "both";
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -478,7 +430,7 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
             </Link>
           )}
         </div>
-        <StatusBadge status={post.status} />
+        {post && <StatusBadge status={post.status} />}
       </div>
 
       <WizardProgress
@@ -506,13 +458,6 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
             coverPhotoId={coverPhotoId}
             onChange={(next) => {
               setPhotos(next);
-              if (post) {
-                saveDemoPost({
-                  ...post,
-                  photos: next.map((p, i) => wizardPhotoToDemo(p, i)),
-                  coverPhotoId: coverPhotoId || next[0]?.id || "",
-                });
-              }
             }}
             disabled={readOnly}
           />
@@ -522,49 +467,47 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
           <DeliveryDetailsStep
             formId={DETAILS_FORM_ID}
             defaultValues={detailsDefaults}
-            onValid={(data) => {
+            onValid={async (data) => {
               setDetails(data);
-              if (!post) return;
-              const saved = saveDemoPost(
-                buildDemoPost(
-                  post,
+              if (post) {
+                const result = await saveWizardPost(post.id, {
+                  details: data,
                   photos,
-                  coverPhotoId || photos[0]?.id || "",
-                  data,
-                  captionTextsFromGenerated(generatedCaptions),
-                  selectedIndex,
+                  coverPhotoId: coverPhotoId || photos[0]?.id || "",
+                  captionOptions: captionTextsFromGenerated(generatedCaptions),
+                  selectedCaptionIndex: selectedIndex,
                   finalCaption,
-                  post.status === "posted" ? "posted" : "draft"
-                )
-              );
-              setPost(saved);
+                  status: post.status === "posted" ? "posted" : "draft",
+                });
+                if (!("error" in result)) setPost(result);
+              }
               setStep(4);
             }}
           />
         )}
 
         {step === 4 && (
-            <CaptionStudioStep
-              captions={generatedCaptions}
-              selectedIndex={selectedIndex}
-              finalCaption={finalCaption}
-              generating={generating}
-              onGenerateAll={handleGenerateCaptions}
-              onSelect={(i) => {
-                setSelectedIndex(i);
-                setFinalCaption(generatedCaptions[i]?.text ?? "");
-              }}
-              onRegenerate={handleRegenerateCaption}
-              onCaptionChange={setFinalCaption}
-            />
+          <CaptionStudioStep
+            captions={generatedCaptions}
+            selectedIndex={selectedIndex}
+            finalCaption={finalCaption}
+            generating={generating}
+            onGenerateAll={handleGenerateCaptions}
+            onSelect={(i) => {
+              setSelectedIndex(i);
+              setFinalCaption(generatedCaptions[i]?.text ?? "");
+            }}
+            onRegenerate={handleRegenerateCaption}
+            onCaptionChange={setFinalCaption}
+          />
         )}
 
         {step === 5 && details && (
           <PreviewApprovalStep
             caption={finalCaption}
             imageUrls={imageUrls}
-            platforms={previewPost.platforms}
-            status={post.status}
+            platforms={platforms}
+            status={post?.status ?? "draft"}
             plateSafety={computePlateSafetyFromPhotos(photos)}
             saving={saving}
             readOnly={readOnly}
@@ -582,7 +525,7 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
             variant="outline"
             className="flex-1 sm:flex-none"
             onClick={goBack}
-            disabled={step === 1}
+            disabled={step === 1 || saving}
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
@@ -592,7 +535,9 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
               type="submit"
               form={DETAILS_FORM_ID}
               className="flex-1 bg-amber-500 text-black hover:bg-amber-400 sm:flex-none"
+              disabled={saving}
             >
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Continue
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
@@ -601,18 +546,14 @@ export function DeliveryWizard({ postId }: DeliveryWizardProps) {
               type="button"
               className="flex-1 bg-amber-500 text-black hover:bg-amber-400 sm:flex-none"
               onClick={goNext}
+              disabled={saving}
             >
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Continue
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           )}
         </div>
-      )}
-
-      {step === 3 && (
-        <p className="mt-2 text-center text-xs text-muted-foreground sm:hidden">
-          Tap Continue to validate and proceed
-        </p>
       )}
     </div>
   );

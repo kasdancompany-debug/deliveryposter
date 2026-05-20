@@ -1,4 +1,4 @@
-import type { WizardPhoto } from "@/lib/demo/types";
+import type { WizardPhoto } from "@/lib/delivery-post/types";
 import type { PlateSafetyStatus } from "@/lib/delivery-score/types";
 
 export function isPhotoPlateProtected(photo: WizardPhoto): boolean {

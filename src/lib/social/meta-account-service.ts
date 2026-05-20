@@ -1,19 +1,10 @@
-import { isDemoMode } from "@/lib/supabase/middleware";
 import { createClient } from "@/lib/supabase/server";
-import {
-  buildDemoConnectedPayload,
-  demoCookieToRow,
-  demoMetaCookieOptions,
-  readDemoMetaCookie,
-  type DemoMetaCookiePayload,
-} from "@/lib/demo/meta-connection-cookie";
 import { resolveTokenStatus } from "./meta-token-status";
 import type {
   MetaConnectionView,
   MetaPageOption,
   SocialAccountRow,
 } from "./meta-types";
-import { DEMO_META_PAGE } from "./meta-types";
 import { decryptAccessToken } from "./meta-oauth";
 
 export interface MetaPublishCredentials {
@@ -70,12 +61,6 @@ async function getSupabaseMetaRow(): Promise<SocialAccountRow | null> {
 }
 
 export async function getMetaConnection(): Promise<MetaConnectionView> {
-  if (isDemoMode()) {
-    const cookie = await readDemoMetaCookie();
-    if (!cookie) return rowToView(null);
-    return rowToView(demoCookieToRow(cookie));
-  }
-
   const row = await getSupabaseMetaRow();
   return rowToView(row);
 }
@@ -103,22 +88,8 @@ export async function getMetaPages(): Promise<{
   };
 }
 
-/** Demo: persist mock connection in httpOnly cookie. */
-export async function saveDemoMetaConnection(): Promise<DemoMetaCookiePayload> {
-  return buildDemoConnectedPayload();
-}
-
-export function getDemoCookieSetOptions(payload: DemoMetaCookiePayload) {
-  return demoMetaCookieOptions(payload);
-}
-
-export function getDemoCookieClearOptions() {
-  return demoMetaCookieOptions(null);
-}
-
 /**
  * Persist Meta connection to Supabase after OAuth + page selection.
- * TODO: Call from callback after exchangeCodeForToken + fetchMetaPages + user picks page.
  */
 export async function upsertSupabaseMetaAccount(
   _row: Omit<
@@ -132,22 +103,11 @@ export async function upsertSupabaseMetaAccount(
 
 /** Remove Meta connection. */
 export async function disconnectMetaAccount(): Promise<void> {
-  if (isDemoMode()) return;
-
   const supabase = await createClient();
-  // TODO: Revoke token via DELETE graph.facebook.com/{user-id}/permissions
   await supabase.from("social_accounts").delete().eq("platform", "meta");
 }
 
-export function getMockPageCatalog(): MetaPageOption[] {
-  return [DEMO_META_PAGE];
-}
-
 async function getMetaRowForPublish(): Promise<SocialAccountRow | null> {
-  if (isDemoMode()) {
-    const cookie = await readDemoMetaCookie();
-    return cookie ? demoCookieToRow(cookie) : null;
-  }
   return getSupabaseMetaRow();
 }
 

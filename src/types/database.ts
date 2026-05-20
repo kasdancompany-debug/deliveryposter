@@ -39,6 +39,9 @@ export interface DeliveryPostPhoto {
   post_id: string;
   storage_path: string;
   public_url: string | null;
+  original_storage_path?: string | null;
+  original_public_url?: string | null;
+  plate_protected?: boolean;
   sort_order: number;
   created_at: string;
 }

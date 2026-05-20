@@ -1,11 +1,10 @@
-import { isDemoMode } from "@/lib/supabase/middleware";
 import type { PublisherMode } from "./index";
 
 /**
- * Demo → mock publisher. Production → Meta Graph API (requires connected account).
+ * `PUBLISHER_MODE=mock` uses mock publisher until Meta OAuth is complete.
+ * Default: meta (requires connected social account).
  */
 export function resolvePublisherMode(): PublisherMode {
-  if (isDemoMode()) return "mock";
   if (process.env.PUBLISHER_MODE === "mock") return "mock";
   return "meta";
 }

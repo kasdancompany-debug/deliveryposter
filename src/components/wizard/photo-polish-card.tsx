@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import {
   applyAutoEnhance,
   applyBlurFromNormalizedRect,
-  loadImage,
+  loadImageForProcessing,
   type NormalizedRect,
 } from "@/lib/image-processing";
 import { getEditedUrl, getOriginalUrl } from "@/lib/delivery-post/photo-urls";
@@ -39,14 +39,21 @@ export function PhotoPolishCard({
   );
   const [selection, setSelection] = useState<NormalizedRect | null>(null);
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+  const [imgLoadError, setImgLoadError] = useState(false);
 
   const displayUrl = getEditedUrl(photo);
   const protected_ = isPhotoPlateProtected(photo);
 
   useEffect(() => {
-    loadImage(displayUrl).then((img) => {
-      setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-    });
+    setImgLoadError(false);
+    loadImageForProcessing(displayUrl)
+      .then((img) => {
+        setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+      })
+      .catch(() => {
+        setImgSize({ w: 0, h: 0 });
+        setImgLoadError(true);
+      });
   }, [displayUrl]);
 
   function pointerToNorm(clientX: number, clientY: number) {
@@ -114,23 +121,45 @@ export function PhotoPolishCard({
   }
 
   async function handleApplyBlur() {
-    if (!selection || selection.w < 0.02 || selection.h < 0.02) {
+    if (!selection || selection.w < 0.015 || selection.h < 0.015) {
       toast.error("Draw a rectangle around the license plate");
       return;
     }
     const el = containerRef.current;
-    if (!el || !imgSize.w) return;
+    if (!el) return;
+
+    if (!imgSize.w) {
+      try {
+        const img = await loadImageForProcessing(displayUrl);
+        setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+      } catch {
+        toast.error(
+          "Could not load this photo for editing. Try Reset, then blur again."
+        );
+        return;
+      }
+    }
 
     setProcessing(true);
     try {
+      let w = imgSize.w;
+      let h = imgSize.h;
+      if (!w) {
+        const img = await loadImageForProcessing(displayUrl);
+        w = img.naturalWidth;
+        h = img.naturalHeight;
+        setImgSize({ w, h });
+      }
+
       const editedUrl = await applyBlurFromNormalizedRect(
         displayUrl,
         selection,
-        imgSize.w,
-        imgSize.h,
+        w,
+        h,
         el.clientWidth,
         el.clientHeight,
-        true
+        true,
+        "cover"
       );
       onChange({
         ...photo,
@@ -140,8 +169,10 @@ export function PhotoPolishCard({
       });
       exitBlurMode();
       toast.success("Plate protected");
-    } catch {
-      toast.error("Could not apply plate blur");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not apply plate blur"
+      );
     } finally {
       setProcessing(false);
     }
@@ -159,7 +190,7 @@ export function PhotoPolishCard({
   }
 
   const selectionReady =
-    selection && selection.w >= 0.02 && selection.h >= 0.02;
+    selection && selection.w >= 0.015 && selection.h >= 0.015;
   const busy = processing || disabled;
 
   return (
@@ -314,7 +345,13 @@ export function PhotoPolishCard({
           </div>
           {blurMode && !selectionReady && (
             <p className="text-xs text-muted-foreground">
-              Drag a box over the plate. You can add more regions after applying.
+              Drag a box over the plate, then tap <strong>Apply Blur</strong>.
+              You can blur multiple regions one at a time.
+            </p>
+          )}
+          {imgLoadError && (
+            <p className="text-xs text-amber-300">
+              Photo could not be loaded for editing — use Reset or re-upload.
             </p>
           )}
         </CardContent>

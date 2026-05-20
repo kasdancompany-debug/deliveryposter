@@ -126,6 +126,29 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Load image for canvas export (fetch blob avoids many Supabase CORS canvas issues). */
+export async function loadImageForProcessing(
+  src: string
+): Promise<HTMLImageElement> {
+  if (src.startsWith("data:") || src.startsWith("blob:")) {
+    return loadImage(src);
+  }
+
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await loadImage(objectUrl);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return loadImage(src);
+  }
+}
+
 function createCanvas(
   width: number,
   height: number
@@ -196,7 +219,7 @@ export async function applyEnhancement(
   sourceUrl: string,
   params: EnhancementParams
 ): Promise<string> {
-  const img = await loadImage(sourceUrl);
+  const img = await loadImageForProcessing(sourceUrl);
   const { canvas, ctx } = createCanvas(img.naturalWidth, img.naturalHeight);
   drawImageOnCanvas(canvas, img, buildCssFilter(params));
   if (params.clarity && params.clarity > 1) {
@@ -209,7 +232,7 @@ export async function applyEnhancement(
 export async function analyzeAverageBrightness(
   sourceUrl: string
 ): Promise<number> {
-  const img = await loadImage(sourceUrl);
+  const img = await loadImageForProcessing(sourceUrl);
   const sampleW = Math.min(200, img.naturalWidth);
   const sampleH = Math.min(200, img.naturalHeight);
   const { canvas, ctx } = createCanvas(sampleW, sampleH);
@@ -273,15 +296,24 @@ export async function applyAutoEnhance(sourceUrl: string): Promise<string> {
   return applyEnhancement(sourceUrl, params);
 }
 
-/** Map normalized drag rect on letterboxed image to pixel coordinates. */
+export type ImageFitMode = "cover" | "contain";
+
+/**
+ * Map normalized drag rect (0–1 on preview container) to image pixel coordinates.
+ * Preview uses CSS object-cover — must use fit "cover", not letterbox/contain math.
+ */
 export function normalizedRectToImagePixels(
   norm: NormalizedRect,
   imgW: number,
   imgH: number,
   displayW: number,
-  displayH: number
+  displayH: number,
+  fit: ImageFitMode = "cover"
 ): ImageRect {
-  const scale = Math.min(displayW / imgW, displayH / imgH);
+  const scale =
+    fit === "cover"
+      ? Math.max(displayW / imgW, displayH / imgH)
+      : Math.min(displayW / imgW, displayH / imgH);
   const drawW = imgW * scale;
   const drawH = imgH * scale;
   const offsetX = (displayW - drawW) / 2;
@@ -356,14 +388,14 @@ export function pixelateRegion(
 export async function imageToCanvas(
   sourceUrl: string
 ): Promise<{ canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; img: HTMLImageElement }> {
-  const img = await loadImage(sourceUrl);
+  const img = await loadImageForProcessing(sourceUrl);
   const { canvas, ctx } = createCanvas(img.naturalWidth, img.naturalHeight);
   drawImageOnCanvas(canvas, img);
   return { canvas, ctx, img };
 }
 
 /** Plate blur uses larger blocks for stronger pixelation. */
-const PLATE_PIXEL_BLOCK = 20;
+const PLATE_PIXEL_BLOCK = 28;
 
 /** Apply pixel blur to one rectangle on a source image; returns new data URL. */
 export async function applyBlurToRegion(
@@ -402,7 +434,7 @@ export async function applyCenterCrop(
   sourceUrl: string,
   preset: CropAspectPreset
 ): Promise<string> {
-  const img = await loadImage(sourceUrl);
+  const img = await loadImageForProcessing(sourceUrl);
   const target = aspectRatioValue(preset);
   const imgAspect = img.naturalWidth / img.naturalHeight;
 
@@ -446,9 +478,17 @@ export async function applyBlurFromNormalizedRect(
   imgH: number,
   displayW: number,
   displayH: number,
-  forPlate = false
+  forPlate = false,
+  fit: ImageFitMode = "cover"
 ): Promise<string> {
-  const rect = normalizedRectToImagePixels(norm, imgW, imgH, displayW, displayH);
+  const rect = normalizedRectToImagePixels(
+    norm,
+    imgW,
+    imgH,
+    displayW,
+    displayH,
+    fit
+  );
   return forPlate
     ? applyPlateBlurToRegion(sourceUrl, rect)
     : applyBlurToRegion(sourceUrl, rect);
@@ -487,7 +527,7 @@ export async function processImage(options: {
     : null;
   const params = preset?.params ?? DEFAULT_PARAMS;
 
-  const img = await loadImage(options.sourceUrl);
+  const img = await loadImageForProcessing(options.sourceUrl);
   const { canvas, ctx } = createCanvas(img.naturalWidth, img.naturalHeight);
   drawImageOnCanvas(canvas, img, buildCssFilter(params));
   if (params.clarity && params.clarity > 1) {
